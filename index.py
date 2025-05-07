@@ -1,47 +1,54 @@
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
 
-from pyspark.sql import SparkSession
-from pyspark.sql.functions import col
-from pyspark.ml import Pipeline
-from pyspark.ml.feature import VectorAssembler, StandardScaler, StringIndexer
-from pyspark.ml.classification import RandomForestClassifier
-from pyspark.ml.evaluation import MulticlassClassificationEvaluator
+#Inizio caricando il dataset
+df = pd.read_csv('data.csv')
+print(df.shape)
 
-#Funzione per rimuovere gli outlier
-def outlier_remover(db, selected_features):
+#mantengo le istanze che hanno come traffuc Subtype più di 10000 istanze
+label_counts = df['Traffic Subtype'].value_counts()
+valid_labels = label_counts[label_counts > 10000].index
+df_filtered = df[df['Traffic Subtype'].isin(valid_labels)]
+df_sampled = df_filtered.sample(frac=0.005, random_state=42)
+df_dropped = df[~df['Traffic Subtype'].isin(valid_labels)]
 
-    q1 = np.percentile(db[selected_features], 25)
-    q3 = np.percentile(db[selected_features], 75)
-    step = (q3-q1)*1.5
+df = pd.concat([df_sampled, df_dropped], ignore_index=True)
+print(df.shape)
 
-    outlier_indices = db[(db[selected_features] < q1 - step) | (db[selected_features] > q3 + step)].index
+ax = sns.countplot(x='Label', data=df)
+ax.set_title('Distribution of Labels')
+ax.set_xlabel('Label')
+ax.set_ylabel('Count')
+plt.xticks(rotation=45, ha='right')
+[ax.annotate(f'{p.get_height()}', (p.get_x() + p.get_width()/2., p.get_height()), 
+             ha='center', va='bottom', fontsize=9) for p in ax.patches]
+plt.tight_layout(); plt.show()
 
-    return list(outlier_indices)
+ax = sns.countplot(x='Traffic Type', data=df)
+ax.set_title('Distribution of Traffic Types')
+ax.set_xlabel('Traffic Type')
+ax.set_ylabel('Count')
+plt.xticks(rotation=45, ha='right')
+[ax.annotate(f'{p.get_height()}', (p.get_x() + p.get_width()/2., p.get_height()), 
+             ha='center', va='bottom', fontsize=9) for p in ax.patches]
+plt.tight_layout(); plt.show()
 
-selected_features = [
-    "Flow Duration",
-    "Total Fwd Packet", "Total Bwd packets",
-    "Total Length of Fwd Packet", "Total Length of Bwd Packet",
-    "Fwd Packet Length Mean", "Bwd Packet Length Mean",
-    "Flow Bytes/s", "Flow Packets/s",
-    "Flow IAT Mean",
-    "Fwd IAT Mean", "Bwd IAT Mean",
-    "Fwd Header Length", "Bwd Header Length",
-    "Fwd Packets/s", "Bwd Packets/s",
-    "Packet Length Mean",
-    "SYN Flag Count", "ACK Flag Count", "FIN Flag Count",
-    "Average Packet Size",
-    "Fwd Segment Size Avg", "Bwd Segment Size Avg",
-    "FWD Init Win Bytes", "Bwd Init Win Bytes",
-    "Idle Mean", "Active Mean"
-]
 
-db = pd.read_csv('./data.csv')
-print(db.shape)
-spark = SparkSession.builder.appName("IDS_Pipeline").getOrCreate()
+TARGET_VARIABLE = 'Traffic Subtype'
+DROP_COLUMNS = ['Flow ID', 'Src IP', 'Src Port', 'Dst IP', 'Dst Port', 'Timestamp']
+TARGET_TO_DROP = {'Label': ['Traffic Type', 'Traffic Subtype'],
+                  'Traffic Type': ['Label', 'Traffic Subtype'],
+                  'Traffic Subtype': ['Label', 'Traffic Type']}
 
-outlier_indices = outlier_remover(db, selected_features)
-db = db.drop(outlier_indices).reset_index(drop=True)
-print(db.shape)
+#Elimino le righe che non sono utili per la nostra analisi
+df = df.drop(columns=DROP_COLUMNS)
+
+#Rimuovo duplicati e i valori del dizionario
+df = df.round(3)
+df = df.drop_duplicates()
+df = df.drop(columns=TARGET_TO_DROP[TARGET_VARIABLE])
+
+print(df.shape)
 
